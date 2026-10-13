@@ -8,7 +8,7 @@ import json
 import logging
 import time
 from typing import List, Dict, Any, Optional
-from openai import OpenAI, APIError, RateLimitError, APIConnectionError
+from openai import OpenAI, APIError, RateLimitError, APIConnectionError, InternalServerError
 from ..utils.openai_utils import get_openai_api_key
 
 # Configure logging
@@ -81,7 +81,7 @@ class OpenAIService:
         for attempt in range(self.max_retries):
             try:
                 return func(*args, **kwargs)
-            except (RateLimitError, APIConnectionError) as e:
+            except (RateLimitError, APIConnectionError, InternalServerError) as e:
                 last_exception = e
                 if attempt < self.max_retries - 1:
                     wait_time = self.retry_delay * (2 ** attempt)
