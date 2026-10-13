@@ -7,8 +7,36 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="CysticCare AI — an AI support assistant for people living with Polycystic Kidney Disease, with answers grounded in the published PKD literature.">
+
+  <!-- Keep in sync with MaterialApp.title in lib/main.dart, which replaces
+       this once the app starts. -->
+  <title>CysticCare AI — Polycystic Kidney Disease (PKD) AI Support</title>
+  <meta name="description" content="Ask CysticCare AI about polycystic kidney disease (PKD): symptoms, diagnosis, treatment and daily management, with answers linked to published research.">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
+  <meta name="application-name" content="CysticCare AI">
   <meta name="theme-color" content="#35459E">
+
+  <!-- The site also answers on cysticcare-ai.firebaseapp.com; this is the
+       address search engines should index. -->
+  <link rel="canonical" href="https://cysticcare-ai.web.app/">
+
+  <!-- Link previews (Open Graph / X) -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="CysticCare AI">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:url" content="https://cysticcare-ai.web.app/">
+  <meta property="og:title" content="CysticCare AI — Polycystic Kidney Disease (PKD) AI Support">
+  <meta property="og:description" content="Ask about PKD symptoms, diagnosis, treatment options and day-to-day management, and get clear answers linked to published research.">
+  <meta property="og:image" content="https://cysticcare-ai.web.app/og-image.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="CysticCare AI — get clear answers, grounded in PKD research.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="CysticCare AI — Polycystic Kidney Disease (PKD) AI Support">
+  <meta name="twitter:description" content="Ask about PKD symptoms, diagnosis, treatment options and day-to-day management, and get clear answers linked to published research.">
+  <meta name="twitter:image" content="https://cysticcare-ai.web.app/og-image.png">
+  <meta name="twitter:image:alt" content="CysticCare AI — get clear answers, grounded in PKD research.">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -19,10 +47,165 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>CysticCare AI — Support for Polycystic Kidney Disease</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- The rendering engine and its fallback fonts are fetched from here. -->
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://cysticcare-ai.web.app/#website",
+        "url": "https://cysticcare-ai.web.app/",
+        "name": "CysticCare AI",
+        "description": "An AI support assistant for people living with Polycystic Kidney Disease, with answers grounded in the published PKD literature.",
+        "inLanguage": "en"
+      },
+      {
+        "@type": "WebApplication",
+        "@id": "https://cysticcare-ai.web.app/#app",
+        "url": "https://cysticcare-ai.web.app/",
+        "name": "CysticCare AI",
+        "alternateName": "CysticCare",
+        "description": "Ask about symptoms, diagnosis, treatment options, and day-to-day management for Polycystic Kidney Disease, with source-linked answers.",
+        "applicationCategory": "HealthApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires JavaScript",
+        "inLanguage": "en",
+        "isAccessibleForFree": true,
+        "image": "https://cysticcare-ai.web.app/og-image.png",
+        "isPartOf": { "@id": "https://cysticcare-ai.web.app/#website" },
+        "about": {
+          "@type": "MedicalCondition",
+          "name": "Polycystic kidney disease",
+          "alternateName": "PKD"
+        },
+        "audience": { "@type": "Patient" }
+      }
+    ]
+  }
+  </script>
+
+  <script>document.documentElement.classList.add('js');</script>
+  <style>
+    /* Shown while the app downloads, and the only text a crawler can read:
+       the app itself draws to a canvas. The copy mirrors the app's own home
+       screen, so keep the two in step. */
+    html, body { margin: 0; height: 100%; background: #FBFCFE; }
+    #app-shell {
+      box-sizing: border-box;
+      min-height: 100%;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 24px 24px 40px;
+      color: #334E68;
+      font: 400 16px/1.6 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+    #app-shell * { box-sizing: border-box; }
+    .shell-brand { display: flex; align-items: center; gap: 12px; }
+    .shell-brand img { display: block; width: 48px; height: 48px; mix-blend-mode: multiply; }
+    .shell-name { margin: 0; color: #102A43; font-size: 20px; font-weight: 600; line-height: 1.2; }
+    .shell-sub { margin: 0; color: #5D7285; font-size: 13px; line-height: 1.4; }
+    .shell-hero { padding: 56px 0 40px; }
+    .shell-eyebrow {
+      margin: 0 0 12px;
+      color: #35459E;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    #app-shell h1 {
+      margin: 0 0 16px;
+      color: #102A43;
+      font-size: clamp(28px, 6vw, 40px);
+      font-weight: 600;
+      line-height: 1.15;
+      letter-spacing: -0.5px;
+    }
+    .shell-lead { margin: 0 0 28px; font-size: 17px; }
+    .shell-status { display: flex; align-items: center; gap: 10px; margin: 0; color: #5D7285; font-size: 14px; }
+    /* Without JavaScript nothing is loading; the noscript note shows instead. */
+    html:not(.js) .shell-loading { display: none; }
+    .shell-spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #DDE5EC;
+      border-top-color: #35459E;
+      border-radius: 50%;
+      animation: shell-spin 0.9s linear infinite;
+    }
+    @keyframes shell-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .shell-spinner { animation: none; } }
+    #app-shell section + section { padding-top: 28px; border-top: 1px solid #DDE5EC; }
+    #app-shell h2 { margin: 0 0 8px; color: #102A43; font-size: 18px; font-weight: 600; line-height: 1.3; }
+    #app-shell h3 { margin: 16px 0 4px; color: #102A43; font-size: 14px; font-weight: 600; }
+    #app-shell section p { margin: 0 0 12px; }
+    #app-shell ul { margin: 0 0 28px; padding-left: 20px; }
+    #app-shell li { margin: 4px 0; }
+    .shell-note { margin: 0; padding-top: 20px; border-top: 1px solid #DDE5EC; color: #5D7285; font-size: 13px; }
+  </style>
 </head>
 <body>
+  <main id="app-shell">
+    <header class="shell-brand">
+      <img src="icons/Icon-192.png" width="48" height="48" alt="CysticCare AI logo">
+      <div>
+        <p class="shell-name">CysticCare AI</p>
+        <p class="shell-sub">AI Support for PKD</p>
+      </div>
+    </header>
+
+    <section class="shell-hero">
+      <p class="shell-eyebrow">Kidney health &bull; PKD support</p>
+      <h1>Get clear answers, grounded in PKD research.</h1>
+      <p class="shell-lead">Ask about symptoms, diagnosis, treatment options, and day-to-day management for Polycystic Kidney Disease, with source-linked answers.</p>
+      <p class="shell-status shell-loading" role="status"><span class="shell-spinner" aria-hidden="true"></span>Loading the assistant…</p>
+      <noscript><p class="shell-status">CysticCare AI needs JavaScript to run. Please enable it and reload this page.</p></noscript>
+    </section>
+
+    <section>
+      <h2>About CysticCare AI</h2>
+      <p>CysticCare AI is an AI-powered support agent designed to help patients with Polycystic Kidney Disease (PKD).</p>
+      <h3>What you can ask</h3>
+      <ul>
+        <li>Questions about PKD symptoms and management</li>
+        <li>Treatment options and lifestyle recommendations</li>
+        <li>Support and guidance for living with PKD</li>
+        <li>General information about kidney health</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Popular questions</h2>
+      <ul>
+        <li>What is Polycystic Kidney Disease?</li>
+        <li>What are the symptoms of PKD?</li>
+        <li>How is PKD diagnosed?</li>
+        <li>What treatment options are available?</li>
+        <li>How can I manage PKD symptoms?</li>
+        <li>What lifestyle changes can help with PKD?</li>
+      </ul>
+    </section>
+
+    <p class="shell-note">This AI assistant provides general information and support. Always consult with your healthcare provider for medical advice and treatment decisions.</p>
+  </main>
+
+  <script>
+    // Once the app paints it covers this page. The text stays in the document
+    // for crawlers, but leaves the tab order, find-in-page and the
+    // accessibility tree so nobody meets it a second time behind the app.
+    window.addEventListener('flutter-first-frame', function () {
+      var shell = document.getElementById('app-shell');
+      shell.setAttribute('aria-hidden', 'true');
+      shell.inert = true;
+    });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

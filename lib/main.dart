@@ -18,7 +18,8 @@ class CysticCareApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'CysticCare AI - AI Support for Polycystic Kidney Disease',
+      // Becomes the browser tab title; keep in sync with web/index.html.
+      title: 'CysticCare AI — Polycystic Kidney Disease (PKD) AI Support',
       theme: buildBrandTheme(),
       home: const ChatScreen(),
       debugShowCheckedModeBanner: false,

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://cysticcare-ai.web.app/sitemap.xml
