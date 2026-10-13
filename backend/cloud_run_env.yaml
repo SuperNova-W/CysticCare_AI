@@ -6,7 +6,7 @@ CORS_ALLOWED_ORIGINS: "https://cysticcare-ai.web.app,https://cysticcare-ai.fireb
 RAG_RERANKER_BACKEND: "medcpt"
 RAG_CROSS_ENCODER_LOCAL_ONLY: "true"
 RAG_CROSS_ENCODER_FALLBACK_TO_LLM: "false"
-RAG_HYDE_ENABLED: "false"
+RAG_HYDE_ENABLED: "true"
 PRELOAD_MEDCPT: "true"
 HELPER_CHAT_MODEL: "gpt-4o-mini"
 ANSWER_REASONING_EFFORT: "none"

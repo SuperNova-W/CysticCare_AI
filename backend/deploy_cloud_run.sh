@@ -5,10 +5,8 @@ set -euo pipefail
   --source . \
   --project cysticcare-ai \
   --region us-east1 \
-  --no-traffic \
-  --tag bounded-rag-candidate \
   --allow-unauthenticated \
-  --min-instances 1 \
+  --min-instances 0 \
   --max-instances 3 \
   --concurrency 4 \
   --timeout 60 \
