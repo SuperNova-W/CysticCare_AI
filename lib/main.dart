@@ -68,6 +68,9 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _error;
   bool _disclaimerAccepted = false;
   List<String> _followupQuestions = [];
+  // Phones only: the suggestion bar opens on request and closes again for
+  // each new answer, so it never crowds the reply by default.
+  bool _followUpsExpanded = false;
 
   static const List<QuickTopic> quickTopics = [
     (
@@ -336,6 +339,7 @@ class _ChatScreenState extends State<ChatScreen> {
           case ChatStreamEventType.followup:
             setState(() {
               _followupQuestions = event.followupQuestions ?? const [];
+              _followUpsExpanded = false;
             });
             break;
           case ChatStreamEventType.validation:
@@ -793,48 +797,54 @@ class _ChatScreenState extends State<ChatScreen> {
     final showQuickStart =
         _isSessionInitialized && _messages.length <= 1 && !_isLoading;
     final showFollowUps = _followupQuestions.isNotEmpty && !_isLoading;
-    // A fixed panel above the input costs too much height on a phone, so
-    // there the suggestions scroll with the conversation instead.
-    final followUpsInList = showFollowUps && _isPhone;
     final itemCount =
-        _messages.length +
-        (_isLoading ? 1 : 0) +
-        (followUpsInList ? 1 : 0) +
-        (showQuickStart ? 1 : 0);
+        _messages.length + (_isLoading ? 1 : 0) + (showQuickStart ? 1 : 0);
 
     return Column(
       children: [
         Expanded(
-          child: _constrain(
-            ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              itemCount: itemCount,
-              itemBuilder: (context, index) {
-                if (index < _messages.length) {
-                  return _buildMessageBubble(_messages[index]);
-                }
-                var extra = index - _messages.length;
-                if (_isLoading) {
-                  if (extra == 0) return _buildTypingIndicator();
-                  extra--;
-                }
-                if (followUpsInList) {
-                  if (extra == 0) return _buildFollowUpList();
-                  extra--;
-                }
-                return _buildQuickStart();
-              },
-            ),
+          // The space left above the input bounds how far the phone
+          // suggestion bar may open.
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return Column(
+                children: [
+                  Expanded(
+                    child: _constrain(
+                      ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                        itemCount: itemCount,
+                        itemBuilder: (context, index) {
+                          if (index < _messages.length) {
+                            return _buildMessageBubble(_messages[index]);
+                          }
+                          if (_isLoading && index == _messages.length) {
+                            return _buildTypingIndicator();
+                          }
+                          return _buildQuickStart();
+                        },
+                      ),
+                    ),
+                  ),
+                  // The phone bar is not animated in: the scroll to the end of
+                  // a finished answer has to measure it at full height, or
+                  // the last lines end up hidden behind it.
+                  if (showFollowUps && _isPhone)
+                    _buildFollowUpBar(constraints.maxHeight)
+                  else
+                    AnimatedSize(
+                      duration: Brand.smooth,
+                      curve: Brand.easing,
+                      alignment: Alignment.topCenter,
+                      child: showFollowUps
+                          ? _buildFollowUpSuggestions()
+                          : const SizedBox(width: double.infinity),
+                    ),
+                ],
+              );
+            },
           ),
-        ),
-        AnimatedSize(
-          duration: Brand.smooth,
-          curve: Brand.easing,
-          alignment: Alignment.topCenter,
-          child: (showFollowUps && !followUpsInList)
-              ? _buildFollowUpSuggestions()
-              : const SizedBox(width: double.infinity),
         ),
         _buildMessageInput(),
       ],
@@ -1487,71 +1497,135 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  /// Phone presentation of the suggestions: full-width rows inside the
-  /// conversation, so long questions wrap instead of being cut off.
-  Widget _buildFollowUpList() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 12, bottom: 4),
+  /// Phone presentation of the suggestions: a slim bar above the input with
+  /// an expand/shrink toggle. Opened, it lists the questions as full-width
+  /// rows so long ones wrap instead of being cut off, and scrolls rather
+  /// than taking more than its share of [availableHeight].
+  Widget _buildFollowUpBar(double availableHeight) {
+    const headerHeight = 44.0;
+    final expanded = _followUpsExpanded;
+    final maxListHeight = (availableHeight * 0.65 - headerHeight).clamp(
+      0.0,
+      double.infinity,
+    );
+    void toggle() => setState(() => _followUpsExpanded = !expanded);
+
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        color: Brand.surface,
+        border: Border(top: BorderSide(color: Brand.hairline)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'SUGGESTED QUESTIONS',
-            style: brandText(
-              11,
-              FontWeight.w600,
-              1.4,
-              spacing: 1,
-              color: Brand.steel,
-            ),
-          ),
-          const SizedBox(height: 8),
-          for (var i = 0; i < _followupQuestions.length; i++)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: FadeSlideIn(
-                delay: Duration(milliseconds: i * 60),
-                offset: const Offset(0, 8),
-                child: ScaleTap(
-                  onTap: _isRequestActive
-                      ? null
-                      : () => _sendMessage(_followupQuestions[i]),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Brand.canvas,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Brand.hairline),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _followupQuestions[i],
-                            style: brandText(
-                              14,
-                              FontWeight.w500,
-                              1.4,
-                              color: Brand.slate,
-                            ),
-                          ),
+          Semantics(
+            button: true,
+            expanded: expanded,
+            label: 'Suggested questions',
+            onTap: toggle,
+            excludeSemantics: true,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: toggle,
+              child: Container(
+                height: headerHeight,
+                padding: const EdgeInsets.only(left: 16, right: 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'SUGGESTED QUESTIONS',
+                        style: brandText(
+                          11,
+                          FontWeight.w600,
+                          1.4,
+                          spacing: 1,
+                          color: Brand.steel,
                         ),
-                        const SizedBox(width: 10),
-                        const Icon(
-                          Icons.arrow_forward_rounded,
-                          size: 16,
-                          color: Brand.greenDark,
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
+                    // The bar opens upward, so the chevron points up while
+                    // closed and flips once the list is showing.
+                    AnimatedRotation(
+                      turns: expanded ? 0.5 : 0,
+                      duration: Brand.quick,
+                      curve: Brand.easing,
+                      child: const Icon(
+                        Icons.keyboard_arrow_up_rounded,
+                        size: 24,
+                        color: Brand.greenDark,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
+          ),
+          AnimatedSize(
+            duration: Brand.smooth,
+            curve: Brand.easing,
+            alignment: Alignment.topCenter,
+            child: !expanded
+                ? const SizedBox(width: double.infinity)
+                : ConstrainedBox(
+                    constraints: BoxConstraints(maxHeight: maxListHeight),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                      child: Column(
+                        children: [
+                          for (var i = 0; i < _followupQuestions.length; i++)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: FadeSlideIn(
+                                delay: Duration(milliseconds: i * 60),
+                                offset: const Offset(0, 8),
+                                child: ScaleTap(
+                                  onTap: _isRequestActive
+                                      ? null
+                                      : () =>
+                                            _sendMessage(_followupQuestions[i]),
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 12,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Brand.canvas,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: Brand.hairline),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            _followupQuestions[i],
+                                            style: brandText(
+                                              14,
+                                              FontWeight.w500,
+                                              1.4,
+                                              color: Brand.slate,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        const Icon(
+                                          Icons.arrow_forward_rounded,
+                                          size: 16,
+                                          color: Brand.greenDark,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+          ),
         ],
       ),
     );
