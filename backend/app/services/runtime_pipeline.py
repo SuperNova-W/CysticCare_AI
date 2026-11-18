@@ -137,17 +137,22 @@ def _context_with_budget(results: List[Dict[str, Any]]) -> Tuple[str, List[Dict[
     return "\n\n".join(parts), selected
 
 
+def _source_key(result: Dict[str, Any]) -> str:
+    metadata = result.get("metadata") or {}
+    return str(
+        metadata.get("paper_id")
+        or metadata.get("display_name")
+        or metadata.get("file_name")
+        or result.get("id")
+    )
+
+
 def _format_sources(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     sources: List[Dict[str, Any]] = []
     seen: set[str] = set()
     for result in results:
         metadata = result.get("metadata") or {}
-        key = str(
-            metadata.get("paper_id")
-            or metadata.get("display_name")
-            or metadata.get("file_name")
-            or result.get("id")
-        )
+        key = _source_key(result)
         if key in seen:
             continue
         seen.add(key)
@@ -164,6 +169,86 @@ def _format_sources(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             }
         )
     return sources
+
+
+# "Source 3", "[Source 3: ...]", "Sources 2 and 5", "source #4"
+_SOURCE_LABEL_RE = re.compile(
+    r"\bsources?\s*#?\s*(\d{1,2}(?:\s*(?:,|;|and|&)\s*\d{1,2})*)",
+    re.IGNORECASE,
+)
+
+
+def _author_names(author: Any) -> List[str]:
+    """Surnames of every listed author, plus acronyms such as "KDIGO".
+
+    The model cites whichever name sits next to the year in the source label,
+    e.g. "Hartung 2021" for "Eric G. Benz, Erum A. Hartung 2021" or
+    "Group 2025" / "KDIGO 2025" for a KDIGO work group guideline.
+    """
+    text = str(author or "")
+    names: List[str] = re.findall(r"\(([A-Z][A-Z0-9\-]{1,})\)", text)
+    for piece in re.split(r",|;|&|\band\b", text):
+        piece = re.sub(r"\(.*?\)|\bet\s+al\.?", " ", piece, flags=re.IGNORECASE)
+        tokens = re.findall(r"[^\W\d_][\w'\-]*", piece)
+        if tokens:
+            names.append(tokens[-1])
+    unique: List[str] = []
+    for name in names:
+        if len(name) >= 2 and name.lower() not in {"unknown", "al"} and name not in unique:
+            unique.append(name)
+    return unique
+
+
+def cited_sources(answer: str, retrieval: "RetrievalOutput") -> List[Dict[str, Any]]:
+    """Return only the sources the answer actually attributes, in original order.
+
+    A source counts as cited when the answer names its context label
+    ("Source N", where N is the context chunk number shown to the model), its
+    display name, or one of its authors' surnames followed closely by its year
+    (e.g. "Perrone et al., 2021"). An answer with no attribution gets no sources.
+    """
+    sources = retrieval.sources or []
+    if not answer or not sources:
+        return []
+
+    # Deduplicated source keys, in the same order _format_sources produced them.
+    keys: List[str] = []
+    for result in retrieval.results:
+        key = _source_key(result)
+        if key not in keys:
+            keys.append(key)
+
+    cited: set[int] = set()
+    for match in _SOURCE_LABEL_RE.finditer(answer):
+        for number in re.findall(r"\d{1,2}", match.group(1)):
+            chunk_index = int(number) - 1
+            if 0 <= chunk_index < len(retrieval.results):
+                position = keys.index(_source_key(retrieval.results[chunk_index]))
+                if position < len(sources):
+                    cited.add(position)
+
+    lowered = answer.lower()
+    for position, source in enumerate(sources):
+        if position in cited:
+            continue
+        display = str(source.get("display_name") or "").strip().lower()
+        if display and display != "unknown" and display in lowered:
+            cited.add(position)
+            continue
+        year = str(source.get("year") or "").strip()
+        has_year = bool(year) and year.lower() != "unknown"
+        for name in _author_names(source.get("author")):
+            # Without a year, only a distinctive full surname counts.
+            if not has_year and len(name) < 4:
+                continue
+            pattern = rf"\b{re.escape(name)}\b"
+            if has_year:
+                pattern += rf"[^\n]{{0,80}}?\b{re.escape(year)}\b"
+            if re.search(pattern, answer, re.IGNORECASE):
+                cited.add(position)
+                break
+
+    return [source for position, source in enumerate(sources) if position in cited]
 
 
 async def retrieve(

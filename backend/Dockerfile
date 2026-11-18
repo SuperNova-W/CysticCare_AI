@@ -22,6 +22,8 @@ ENV RAG_CROSS_ENCODER_MODEL=ncbi/MedCPT-Cross-Encoder \
     DAILY_OPENAI_TOKEN_LIMIT=5000000 \
     TRACEAI_ENABLED=false \
     TRACEAI_CAPTURE_CONTENT=false \
+    FI_HIDE_INPUTS=true \
+    FI_HIDE_OUTPUTS=true \
     HF_HOME=/opt/huggingface
 
 # Install curl for healthcheck

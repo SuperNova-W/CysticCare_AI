@@ -7,10 +7,11 @@ set -euo pipefail
   --region us-east1 \
   --allow-unauthenticated \
   --min-instances 0 \
+  --cpu-throttling \
   --max-instances 3 \
   --concurrency 4 \
   --timeout 60 \
   --cpu 2 \
   --memory 8Gi \
   --env-vars-file cloud_run_env.yaml \
-  --set-secrets "OPENAI_API_KEY=OPENAI_API_KEY:latest"
+  --set-secrets "OPENAI_API_KEY=OPENAI_API_KEY:latest,FI_API_KEY=FI_API_KEY:latest,FI_SECRET_KEY=FI_SECRET_KEY:latest"

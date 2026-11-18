@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -15,6 +16,7 @@ _TRACE_STATE: Dict[str, Any] = {
     "configured": False,
     "dependencies_available": False,
     "tracer": None,
+    "provider": None,
     "using_metadata": None,
     "using_session": None,
     "using_user": None,
@@ -24,6 +26,7 @@ _TRACE_STATE: Dict[str, Any] = {
     "project_version_requested": None,
     "project_version_applied": None,
     "content_capture_enabled": False,
+    "conversation_capture_enabled": False,
     "last_error": None,
 }
 
@@ -52,9 +55,16 @@ def _should_enable_traceai() -> bool:
 
 
 def _content_capture_enabled() -> bool:
-    # Medical prompts and responses must never leave the provider/runtime logs.
-    # Operation metadata is emitted by usage_metrics.py instead.
+    # Keep helper/provider spans free of conversation content. The explicitly
+    # requested user-facing question and answer are captured only on the chat
+    # request span when TRACEAI_CAPTURE_CONTENT is enabled.
     return False
+
+
+def _conversation_capture_enabled() -> bool:
+    # Only the user-facing question and final answer are recorded on the
+    # request span. Provider-level LLM spans stay redacted separately.
+    return _parse_bool_env("TRACEAI_CAPTURE_CONTENT") is True
 
 
 def _refresh_status_from_env() -> None:
@@ -64,6 +74,7 @@ def _refresh_status_from_env() -> None:
         project_type_requested=os.getenv("TRACEAI_PROJECT_TYPE", "OBSERVE").strip().upper() or "OBSERVE",
         project_version_requested=os.getenv("TRACEAI_PROJECT_VERSION"),
         content_capture_enabled=_content_capture_enabled(),
+        conversation_capture_enabled=_conversation_capture_enabled(),
     )
 
 
@@ -71,6 +82,7 @@ def _disable_traceai(message: Optional[str] = None, *, warn: bool = True) -> boo
     _TRACE_STATE.update(
         enabled=False,
         tracer=None,
+        provider=None,
         using_metadata=None,
         using_session=None,
         using_user=None,
@@ -111,6 +123,7 @@ def get_traceai_status() -> Dict[str, Any]:
         "enabled": bool(_TRACE_STATE["enabled"]),
         "available": bool(_TRACE_STATE["dependencies_available"]),
         "content_capture_enabled": bool(_TRACE_STATE["content_capture_enabled"]),
+        "conversation_capture_enabled": bool(_TRACE_STATE["conversation_capture_enabled"]),
         "project": {
             "name": _TRACE_STATE["project_name"],
             "type_requested": _TRACE_STATE["project_type_requested"],
@@ -139,7 +152,7 @@ def initialize_traceai() -> bool:
         return _disable_traceai("traceAI requested but FI_API_KEY/FI_SECRET_KEY are not configured")
 
     try:
-        from fi_instrumentation import FITracer, register, using_metadata, using_session, using_user
+        from fi_instrumentation import FITracer, TraceConfig, register, using_metadata, using_session, using_user
         from fi_instrumentation.fi_types import ProjectType
         from traceai_openai import OpenAIInstrumentor
     except ImportError as exc:
@@ -178,13 +191,29 @@ def initialize_traceai() -> bool:
 
     try:
         trace_provider = register(**register_kwargs)
-        OpenAIInstrumentor().instrument(tracer_provider=trace_provider)
+        # Provider-level OpenAI spans (full prompts incl. retrieved context) are
+        # always redacted, independent of FI_HIDE_* env vars.
+        OpenAIInstrumentor().instrument(
+            tracer_provider=trace_provider,
+            config=TraceConfig(hide_inputs=True, hide_outputs=True),
+        )
     except Exception as exc:
         return _disable_traceai(f"traceAI initialization failed: {exc}")
 
     _TRACE_STATE.update(
         enabled=True,
-        tracer=FITracer(trace_provider.get_tracer(__name__)),
+        provider=trace_provider,
+        # Explicit config so FI_HIDE_INPUTS/FI_HIDE_OUTPUTS (meant for the provider
+        # spans) don't turn the opted-in question/answer into "<redacted>".
+        # Helper spans never receive text: _captured() and the
+        # content_capture_enabled checks keep their inputs/outputs empty.
+        tracer=FITracer(
+            trace_provider.get_tracer(__name__),
+            config=TraceConfig(
+                hide_inputs=not _TRACE_STATE["conversation_capture_enabled"],
+                hide_outputs=not _TRACE_STATE["conversation_capture_enabled"],
+            ),
+        ),
         using_metadata=using_metadata,
         using_session=using_session,
         using_user=using_user,
@@ -221,6 +250,32 @@ def set_span_output(span: Any, output_value: Any) -> None:
         span.set_output(output_value)
     except Exception:
         logger.debug("Failed to set trace span output", exc_info=True)
+
+
+def set_span_input(span: Any, input_value: Any) -> None:
+    if span is None or input_value is None or not hasattr(span, "set_input"):
+        return
+
+    try:
+        span.set_input(input_value)
+    except Exception:
+        logger.debug("Failed to set trace span input", exc_info=True)
+
+
+async def flush_traces(timeout_millis: int = 1500) -> None:
+    """Export queued spans before the request finishes.
+
+    Cloud Run throttles CPU once a response completes (and scales to zero), so
+    the batch exporter's background thread may never run. Flushing while the
+    request is still open makes sure each question actually reaches Future AGI.
+    """
+    provider = _TRACE_STATE.get("provider")
+    if provider is None or not hasattr(provider, "force_flush"):
+        return
+    try:
+        await asyncio.to_thread(provider.force_flush, timeout_millis)
+    except Exception:
+        logger.debug("traceAI flush failed", exc_info=True)
 
 
 @contextmanager
@@ -399,7 +454,13 @@ def _patch_chat_endpoint(main_module: Any) -> None:
         return
 
     @wraps(original)
-    async def wrapped(request: Any) -> Any:
+    async def wrapped(request: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return await _traced_chat(request, *args, **kwargs)
+        finally:
+            await flush_traces()
+
+    async def _traced_chat(request: Any, *args: Any, **kwargs: Any) -> Any:
         with trace_context(
             session_id=getattr(request, "session_id", None),
             metadata=_request_metadata("/chat", request),
@@ -407,7 +468,6 @@ def _patch_chat_endpoint(main_module: Any) -> None:
             with trace_span(
                 "rag.chat_request",
                 kind="agent",
-                input_value=getattr(request, "query", None),
                 attributes={
                     "http.route": "/chat",
                     "rag.session_id": getattr(request, "session_id", None),
@@ -416,7 +476,9 @@ def _patch_chat_endpoint(main_module: Any) -> None:
                     "rag.max_tokens": getattr(request, "max_tokens", None),
                 },
             ) as request_span:
-                response = await original(request)
+                if _TRACE_STATE["conversation_capture_enabled"]:
+                    set_span_input(request_span, getattr(request, "query", None))
+                response = await original(request, *args, **kwargs)
 
                 response_text = getattr(response, "response", "")
                 sources = getattr(response, "sources", []) or []
@@ -437,15 +499,18 @@ def _patch_chat_endpoint(main_module: Any) -> None:
                     attributes["validation.was_regenerated"] = getattr(validation, "was_regenerated", None)
 
                 set_span_attributes(request_span, attributes)
-                set_span_output(
-                    request_span,
-                    {
-                        "status": getattr(response, "status", "success"),
-                        "refused": refused,
-                        "source_count": len(sources),
-                        "followup_count": len(followups),
-                    },
-                )
+                if _TRACE_STATE["conversation_capture_enabled"]:
+                    set_span_output(request_span, response_text)
+                else:
+                    set_span_output(
+                        request_span,
+                        {
+                            "status": getattr(response, "status", "success"),
+                            "refused": refused,
+                            "source_count": len(sources),
+                            "followup_count": len(followups),
+                        },
+                    )
                 return response
 
     wrapped = _mark_wrapped(wrapped)
@@ -464,6 +529,7 @@ def _patch_stream_generator(main_module: Any) -> None:
         event_count = 0
         chunk_count = 0
         source_count = None
+        response_parts = []
         status = "success"
         with trace_context(
             session_id=getattr(request, "session_id", None),
@@ -472,7 +538,6 @@ def _patch_stream_generator(main_module: Any) -> None:
             with trace_span(
                 "rag.chat_stream_request",
                 kind="agent",
-                input_value=getattr(request, "query", None),
                 attributes={
                     "http.route": "/chat-stream",
                     "rag.session_id": getattr(request, "session_id", None),
@@ -481,6 +546,9 @@ def _patch_stream_generator(main_module: Any) -> None:
                     "rag.max_tokens": getattr(request, "max_tokens", None),
                 },
             ) as span:
+                if _TRACE_STATE["conversation_capture_enabled"]:
+                    set_span_input(span, getattr(request, "query", None))
+
                 async for event in original(request):
                     event_count += 1
                     try:
@@ -488,6 +556,7 @@ def _patch_stream_generator(main_module: Any) -> None:
                         event_type = parsed.get("type")
                         if event_type == "chunk":
                             chunk_count += 1
+                            response_parts.append(str(parsed.get("data") or ""))
                         elif event_type == "sources":
                             source_count = len(parsed.get("data") or [])
                         elif event_type == "error":
@@ -496,6 +565,8 @@ def _patch_stream_generator(main_module: Any) -> None:
                         logger.debug("Could not parse stream event for tracing", exc_info=True)
                     yield event
 
+                if _TRACE_STATE["conversation_capture_enabled"]:
+                    set_span_output(span, "".join(response_parts))
                 set_span_attributes(
                     span,
                     {
@@ -508,6 +579,77 @@ def _patch_stream_generator(main_module: Any) -> None:
                 )
 
     main_module.generate_chat_stream = _mark_wrapped(wrapped)
+
+
+def _patch_bounded_stream_generator(main_module: Any) -> None:
+    # Wrap the outer generator that /chat-stream hands to StreamingResponse.
+    # Starlette iterates it inside a single task, so the trace context stays
+    # attached across yields. The inner _generate_bounded_chat_stream_impl is
+    # driven through asyncio.wait_for (a new task per chunk), which breaks
+    # context detach and splits child spans into separate traces.
+    original = getattr(main_module, "generate_bounded_chat_stream", None)
+    if original is None or _is_wrapped(original):
+        return
+
+    @wraps(original)
+    async def wrapped(request: Any, *args: Any, **kwargs: Any) -> Any:
+        event_count = 0
+        chunk_count = 0
+        source_count = None
+        answer_parts = []
+        status = "success"
+        try:
+            with trace_context(
+                session_id=getattr(request, "session_id", None),
+                metadata=_request_metadata("/chat-stream", request),
+            ):
+                with trace_span(
+                    "rag.chat_stream_request",
+                    kind="agent",
+                    attributes={
+                        "http.route": "/chat-stream",
+                        "rag.session_id": getattr(request, "session_id", None),
+                        "rag.top_k": getattr(request, "top_k", None),
+                    },
+                ) as span:
+                    if _TRACE_STATE["conversation_capture_enabled"]:
+                        set_span_input(span, getattr(request, "query", None))
+
+                    try:
+                        async for event in original(request, *args, **kwargs):
+                            event_count += 1
+                            try:
+                                parsed = json.loads(event)
+                                event_type = parsed.get("type")
+                                if event_type == "chunk":
+                                    chunk_count += 1
+                                    answer_parts.append(str(parsed.get("data") or ""))
+                                elif event_type == "sources":
+                                    source_count = len(parsed.get("data") or [])
+                                elif event_type == "error":
+                                    status = "error"
+                            except Exception:
+                                logger.debug("Could not parse bounded stream event for tracing", exc_info=True)
+                            yield event
+                    finally:
+                        # Runs on normal completion and on client disconnect,
+                        # so a partial answer is still recorded.
+                        if _TRACE_STATE["conversation_capture_enabled"]:
+                            set_span_output(span, "".join(answer_parts))
+                        set_span_attributes(
+                            span,
+                            {
+                                "rag.status": status,
+                                "rag.agent_type": _infer_agent_type(request),
+                                "rag.stream_event_count": event_count,
+                                "rag.stream_chunk_count": chunk_count,
+                                "rag.source_count": source_count,
+                            },
+                        )
+        finally:
+            await flush_traces()
+
+    main_module.generate_bounded_chat_stream = _mark_wrapped(wrapped)
 
 
 def _patch_initialize_endpoint(main_module: Any) -> None:
@@ -528,7 +670,7 @@ def _patch_followup_endpoint(main_module: Any) -> None:
         return
 
     @wraps(original)
-    async def wrapped(request: Any) -> Any:
+    async def wrapped(request: Any, *args: Any, **kwargs: Any) -> Any:
         with trace_context(metadata={"route": "/followup"}):
             with trace_span(
                 "rag.followup_request",
@@ -539,7 +681,7 @@ def _patch_followup_endpoint(main_module: Any) -> None:
                     "rag.followup_requested_count": getattr(request, "num_questions", None),
                 },
             ) as span:
-                response = await original(request)
+                response = await original(request, *args, **kwargs)
                 questions = getattr(response, "followup_questions", []) or []
                 set_span_attributes(
                     span,
@@ -1146,6 +1288,7 @@ def setup_traceai(main_module: Any = None) -> bool:
         _patch_initialize_endpoint(main_module)
         _patch_chat_endpoint(main_module)
         _patch_stream_generator(main_module)
+        _patch_bounded_stream_generator(main_module)
         _patch_analyze_query_endpoint(main_module)
         _patch_stepback_demo_endpoint(main_module)
         _patch_followup_endpoint(main_module)

@@ -322,6 +322,7 @@ async def chat_endpoint(
     from .services.runtime_pipeline import (
         ANSWER_SYSTEM_PROMPT,
         answer_user_message,
+        cited_sources,
         guardrail_answer,
         hash_session_id,
         normalize_postprocess,
@@ -387,7 +388,8 @@ async def chat_endpoint(
                 warnings=validation_data["warnings"],
                 was_regenerated=False,
             )
-            sources = [SourceInfo(**source) for source in retrieval.sources]
+            # Only show sources the answer actually attributes.
+            sources = [SourceInfo(**source) for source in cited_sources(answer, retrieval)]
             return ChatResponse(
                 status="success",
                 response=answer,
@@ -1001,6 +1003,7 @@ async def _generate_bounded_chat_stream_impl(
     from .services.runtime_pipeline import (
         ANSWER_SYSTEM_PROMPT,
         answer_user_message,
+        cited_sources,
         guardrail_answer,
         hash_session_id,
         normalize_postprocess,
@@ -1058,7 +1061,6 @@ async def _generate_bounded_chat_stream_impl(
                 yield json.dumps({"type": "done"}) + "\n"
                 return
 
-            yield json.dumps({"type": "sources", "data": retrieval.sources}) + "\n"
             yield json.dumps(
                 {"type": "status", "data": "Synthesizing an evidence-based answer..."}
             ) + "\n"
@@ -1078,6 +1080,11 @@ async def _generate_bounded_chat_stream_impl(
                 tracker.disconnected = True
                 return
 
+            # Sources are sent after the answer so only the ones it actually
+            # attributes are shown; an answer with no attribution shows none.
+            yield json.dumps(
+                {"type": "sources", "data": cited_sources(final_answer, retrieval)}
+            ) + "\n"
             yield json.dumps(
                 {"type": "status", "data": "Generating suggested follow-ups..."}
             ) + "\n"
