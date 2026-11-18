@@ -145,7 +145,7 @@ class _ChatScreenState extends State<ChatScreen> {
             constraints: const BoxConstraints(maxWidth: 440),
             child: const SingleChildScrollView(
               child: Text(
-                'The information contained in this website is not intended to serve as a replacement for professional medical advice. Any use of the information in this website is at the reader\'s discretion. The author and publisher specifically disclaim any and all liability arising directly or indirectly from the use or application of any information contained in this website. A health care professional should be consulted regarding your specific situation.',
+                'The information contained in this website is not intended to serve as a replacement for professional medical advice. Any use of the information in this website is at the reader\'s discretion. The author and publisher specifically disclaim any and all liability arising directly or indirectly from the use or application of any information contained in this website. A health care professional should be consulted regarding your specific situation.\n\nCysticCare AI generates its answers automatically and may occasionally reply in a different language than the one you used. If that happens, ask it to answer in your preferred language.',
               ),
             ),
           ),
@@ -1670,6 +1670,11 @@ class _ChatScreenState extends State<ChatScreen> {
               const SizedBox(height: 7),
               Text(
                 'Support assistant · Always consult your healthcare provider before acting on any answer',
+                style: brandText(11, FontWeight.w400, 1.3, color: Brand.stone),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Answers may occasionally appear in another language. If so, ask CysticCare AI to reply in your preferred language.',
                 style: brandText(11, FontWeight.w400, 1.3, color: Brand.stone),
               ),
             ],
